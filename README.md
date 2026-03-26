@@ -86,6 +86,7 @@ erofs-cibot bridge
 
 The repository includes a scheduled workflow at
 `./.github/workflows/bridge.yml` that runs every two hours by default.
+It also supports manual triggering through `workflow_dispatch`.
 
 Set these repository secrets or variables before enabling it:
 

@@ -23,6 +23,24 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Ensure gh CLI
+        env:
+          REQUEST_COPILOT_REVIEW: ${{ vars.REQUEST_COPILOT_REVIEW || '1' }}
+        run: |
+          if [ "$REQUEST_COPILOT_REVIEW" != "1" ]; then
+            echo "Copilot review disabled; skipping gh check."
+            exit 0
+          fi
+
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+
+          sudo apt-get update
+          sudo apt-get install -y gh
+          gh --version
+
       - name: Restore clone cache
         uses: actions/cache@v4
         with:
