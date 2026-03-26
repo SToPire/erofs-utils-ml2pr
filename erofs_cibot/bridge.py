@@ -68,13 +68,15 @@ def _maybe_request_copilot_review(pr: PullRequest, github: GitHubClient, config:
     if not config.request_copilot_review:
         return
 
+    review_token = config.copilot_review_token or github.token
+
     try:
         request_review(
             gh_path=config.gh_path,
             owner=github.owner,
             repo=github.repo,
             pull_number=pr.number,
-            token=github.token,
+            token=review_token,
         )
     except Exception as exc:
         LOG.warning(

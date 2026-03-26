@@ -42,6 +42,20 @@ GitHub authentication:
 
 - `GH_TOKEN`
 - or `APP_ID` and `APP_PRIVATE_KEY`
+- optional `COPILOT_REVIEW_TOKEN` for requesting `@copilot` review as a user
+
+Authentication priority and scope:
+
+- `GH_TOKEN` and `APP_ID` plus `APP_PRIVATE_KEY` are the main GitHub
+  authentication methods for pushing branches and creating PRs.
+- If `GH_TOKEN` is set, it takes precedence over `APP_ID` plus
+  `APP_PRIVATE_KEY`.
+- If `GH_TOKEN` is unset, `APP_ID` plus `APP_PRIVATE_KEY` are used to
+  create a GitHub App installation token.
+- `COPILOT_REVIEW_TOKEN` only affects the `@copilot` review request.
+  It does not change which identity creates the PR.
+- If `COPILOT_REVIEW_TOKEN` is unset, the Copilot review request falls
+  back to the main GitHub token used by the run.
 
 When `REQUEST_COPILOT_REVIEW=1`, `erofs-cibot` requests a Copilot review
 for each new pull request with:
@@ -49,6 +63,10 @@ for each new pull request with:
 ```bash
 gh pr edit <pr> --repo <owner>/<repo> --add-reviewer @copilot
 ```
+
+If `COPILOT_REVIEW_TOKEN` is set, only the Copilot review request uses
+that token. PR creation still uses `GH_TOKEN` or `APP_ID` plus
+`APP_PRIVATE_KEY`.
 
 When `IGNORE_EXISTING_PRS=1`, `erofs-cibot` ignores matching existing PRs
 for the same mail thread and opens a fresh PR on a new bot branch.
@@ -117,6 +135,7 @@ variables are:
 
 Supported secrets are:
 
+- `COPILOT_REVIEW_TOKEN`
 - `GH_TOKEN`
 - `APP_PRIVATE_KEY`
 

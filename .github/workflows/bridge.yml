@@ -73,6 +73,7 @@ jobs:
           REQUEST_COPILOT_REVIEW: ${{ vars.REQUEST_COPILOT_REVIEW || '1' }}
           IGNORE_EXISTING_PRS: ${{ github.event_name == 'workflow_dispatch' && inputs.ignore_existing_prs && '1' || '0' }}
           GH_PATH: ${{ vars.GH_PATH || 'gh' }}
+          COPILOT_REVIEW_TOKEN: ${{ secrets.COPILOT_REVIEW_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           APP_ID: ${{ vars.APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
