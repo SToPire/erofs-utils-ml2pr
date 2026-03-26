@@ -87,6 +87,8 @@ erofs-cibot bridge
 The repository includes a scheduled workflow at
 `./.github/workflows/bridge.yml` that runs every two hours by default.
 It also supports manual triggering through `workflow_dispatch`.
+The manual trigger exposes an `ignore_existing_prs` input, which maps to
+`IGNORE_EXISTING_PRS=1` for that run only.
 
 Set these repository secrets or variables before enabling it:
 
@@ -110,7 +112,6 @@ variables are:
 - `GIT_USER_NAME`
 - `GIT_USER_EMAIL`
 - `REQUEST_COPILOT_REVIEW`
-- `IGNORE_EXISTING_PRS`
 - `GH_PATH`
 - `APP_ID`
 
