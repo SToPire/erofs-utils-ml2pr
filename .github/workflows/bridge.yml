@@ -1,0 +1,55 @@
+name: erofs-cibot
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: erofs-cibot-mutations
+  cancel-in-progress: false
+
+jobs:
+  bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore clone cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/erofs-cibot-cache
+          key: erofs-cibot-clone
+
+      - name: Install project
+        run: pip install .
+
+      - name: Run bridge
+        env:
+          ARCHIVE_ROOT: ${{ vars.ARCHIVE_ROOT || 'https://lists.ozlabs.org/pipermail/linux-erofs/' }}
+          RAW_MESSAGE_ROOT: ${{ vars.RAW_MESSAGE_ROOT || 'https://lore.kernel.org/all/' }}
+          OWNER: ${{ vars.OWNER || 'erofs' }}
+          REPO: ${{ vars.REPO || 'erofs-utils' }}
+          BASE_BRANCH: ${{ vars.BASE_BRANCH || 'experimental' }}
+          LOOKBACK_HOURS: ${{ vars.LOOKBACK_HOURS || '48' }}
+          POLL_INTERVAL_HOURS: ${{ vars.POLL_INTERVAL_HOURS || '2' }}
+          BOT_BRANCH_PREFIX: ${{ vars.BOT_BRANCH_PREFIX || 'ml' }}
+          CLONE_DIR: ${{ vars.CLONE_DIR || '/tmp/erofs-cibot-cache' }}
+          GIT_CLONE_DEPTH: ${{ vars.GIT_CLONE_DEPTH || '200' }}
+          GIT_USER_NAME: ${{ vars.GIT_USER_NAME || 'erofs-cibot' }}
+          GIT_USER_EMAIL: ${{ vars.GIT_USER_EMAIL || 'erofs-cibot@lists.ozlabs.org' }}
+          REQUEST_COPILOT_REVIEW: ${{ vars.REQUEST_COPILOT_REVIEW || '1' }}
+          IGNORE_EXISTING_PRS: ${{ vars.IGNORE_EXISTING_PRS || '0' }}
+          GH_PATH: ${{ vars.GH_PATH || 'gh' }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          APP_ID: ${{ vars.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: erofs-cibot bridge

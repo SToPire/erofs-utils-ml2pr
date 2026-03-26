@@ -1,0 +1,1 @@
+"""erofs-cibot package."""
