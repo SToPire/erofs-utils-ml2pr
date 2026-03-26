@@ -50,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         now = datetime.now(tz=UTC)
         series_list = discover_recent_series(
             config.archive_root,
+            raw_message_root=config.raw_message_root,
             lookback_hours=config.lookback_hours,
             now=now,
         )

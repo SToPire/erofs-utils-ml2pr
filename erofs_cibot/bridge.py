@@ -9,7 +9,6 @@ from tempfile import TemporaryDirectory
 from .archive import (
     candidate_archive_months,
     discover_recent_series,
-    resolve_series_from_raw_thread,
     write_series_mailbox,
 )
 from .copilot_review import request_review
@@ -140,24 +139,7 @@ def _process_series(
     reset_repo(repo_dir, token=github.token, base_branch=config.base_branch)
     with TemporaryDirectory(prefix="erofs-cibot-series-") as tmpdir:
         mailbox_path = Path(tmpdir) / "series.mbox"
-        try:
-            apply_series = resolve_series_from_raw_thread(
-                series,
-                raw_message_root=config.raw_message_root,
-                now=series.latest_date,
-            )
-        except Exception as exc:
-            LOG.warning(
-                "raw thread fetch failed root=%s title=%s error=%s",
-                series.root_message_id,
-                series.title,
-                exc,
-            )
-            _write_summary(
-                f"| raw fetch failed | {_sanitize_title(series.title)} | `{series.root_message_id}` |"
-            )
-            return
-
+        apply_series = series
         write_series_mailbox(apply_series, mailbox_path)
 
         try:
@@ -232,6 +214,7 @@ def run_once(config: Config) -> int:
 
     series_list = discover_recent_series(
         config.archive_root,
+        raw_message_root=config.raw_message_root,
         lookback_hours=config.lookback_hours,
         now=now,
     )

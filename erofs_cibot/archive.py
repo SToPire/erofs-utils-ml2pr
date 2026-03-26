@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import html
 import logging
 import mailbox
 import re
@@ -11,7 +12,7 @@ from email.message import Message
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, unquote, urljoin
 
 from .models import ArchiveMessage, PatchMail, PatchSeries, SubjectInfo
 
@@ -27,6 +28,28 @@ _PATCH_SUBJECT_RE = re.compile(
 _VERSION_RE = re.compile(r"(?:^|\s)v(?P<version>\d+)(?:\s|$)", re.IGNORECASE)
 _INDEX_RE = re.compile(r"(?P<index>\d+)\s*/\s*(?P<total>\d+)")
 _RFC_RE = re.compile(r"\bRFC\b", re.IGNORECASE)
+_DATE_PAGE_ENTRY_RE = re.compile(
+    r'<LI><A HREF="(?P<href>[^"]+)">(?P<subject>.*?)</A><A NAME="[^"]*">&nbsp;</A>\s*<I>(?P<author>.*?)</I>',
+    re.IGNORECASE | re.DOTALL,
+)
+_MESSAGE_PAGE_SUBJECT_RE = re.compile(
+    r"<H1>\s*(?P<subject>.*?)\s*</H1>",
+    re.IGNORECASE | re.DOTALL,
+)
+_MESSAGE_PAGE_HEADER_RE = re.compile(
+    r"<B>(?P<name>.*?)</B>\s*<A\s+HREF=\"mailto:[^\"]*\"[^>]*>(?P<addr>.*?)</A><BR>\s*<I>(?P<date>[^<]+)</I>",
+    re.IGNORECASE | re.DOTALL,
+)
+_MESSAGE_PAGE_ID_RE = re.compile(
+    r'In-Reply-To=(?P<msgid>[^"&]+)',
+    re.IGNORECASE,
+)
+_OZLABS_TZ_OFFSETS = {
+    "AEDT": "+1100",
+    "AEST": "+1000",
+    "UTC": "+0000",
+    "GMT": "+0000",
+}
 
 
 @dataclass
@@ -41,6 +64,22 @@ class _SeriesAccumulator:
     cover_message_id: str | None = None
     touched_in_window: bool = False
     patches_by_index: dict[int, PatchMail] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _DateIndexEntry:
+    archive_month: str
+    message_url: str
+    subject: str
+
+
+@dataclass(frozen=True)
+class _CandidateMessage:
+    archive_month: str
+    message_url: str
+    message_id: str
+    subject: str
+    date: datetime
 
 
 def candidate_archive_months(now: datetime, lookback_hours: int) -> list[str]:
@@ -214,12 +253,114 @@ def _fetch_url_bytes(url: str) -> bytes:
     raise last_error
 
 
-def fetch_month_messages(archive_root: str, archive_month: str) -> list[ArchiveMessage]:
-    month_url = urljoin(archive_root, f"{archive_month}.txt.gz")
-    compressed = _fetch_url_bytes(month_url)
-    raw_mbox = gzip.decompress(compressed)
+def _fetch_url_text(url: str) -> str:
+    return _fetch_url_bytes(url).decode("utf-8", errors="replace")
 
-    return _parse_mbox_bytes(raw_mbox, archive_month)
+
+def _clean_html_text(value: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(value).strip())
+
+
+def _deobfuscate_addr(value: str) -> str:
+    return value.replace(" at ", "@").replace(" dot ", ".").strip()
+
+
+def _parse_ozlabs_page_date(value: str) -> datetime:
+    cleaned = _clean_html_text(value)
+    match = re.match(r"^(?P<prefix>.+?) (?P<tz>[A-Z]{2,5}|[+-]\d{4}) (?P<year>\d{4})$", cleaned)
+    if match:
+        prefix = match.group("prefix")
+        tz_name = match.group("tz")
+        tz_value = _OZLABS_TZ_OFFSETS.get(tz_name, tz_name)
+        parsed = datetime.strptime(
+            f"{prefix} {tz_value} {match.group('year')}",
+            "%a %b %d %H:%M:%S %z %Y",
+        )
+        return parsed.astimezone(UTC)
+
+    parsed = parsedate_to_datetime(cleaned)
+    if parsed is None:
+        raise ValueError(f"unable to parse archive date {value!r}")
+    if parsed.tzinfo is None:
+        raise ValueError(f"archive date missing timezone {value!r}")
+    return parsed.astimezone(UTC)
+
+
+def _parse_date_index_entries(
+    html_text: str,
+    *,
+    archive_month: str,
+    date_page_url: str,
+) -> list[_DateIndexEntry]:
+    entries: list[_DateIndexEntry] = []
+    for match in _DATE_PAGE_ENTRY_RE.finditer(html_text):
+        subject = _clean_html_text(match.group("subject"))
+        href = html.unescape(match.group("href")).strip()
+        if not subject or not href.endswith(".html"):
+            continue
+        entries.append(
+            _DateIndexEntry(
+                archive_month=archive_month,
+                message_url=urljoin(date_page_url, href),
+                subject=subject,
+            )
+        )
+    return entries
+
+
+def fetch_month_date_index_entries(
+    archive_root: str,
+    archive_month: str,
+) -> list[_DateIndexEntry]:
+    date_page_url = urljoin(archive_root, f"{archive_month}/date.html")
+    html_text = _fetch_url_text(date_page_url)
+    entries = _parse_date_index_entries(
+        html_text,
+        archive_month=archive_month,
+        date_page_url=date_page_url,
+    )
+    LOG.info("loaded date index month=%s entries=%d", archive_month, len(entries))
+    return entries
+
+
+def _parse_candidate_message_page(
+    html_text: str,
+    *,
+    archive_month: str,
+    message_url: str,
+) -> _CandidateMessage:
+    subject_match = _MESSAGE_PAGE_SUBJECT_RE.search(html_text)
+    header_match = _MESSAGE_PAGE_HEADER_RE.search(html_text)
+    message_id_match = _MESSAGE_PAGE_ID_RE.search(html_text)
+    if subject_match is None or header_match is None or message_id_match is None:
+        raise ValueError(f"unable to parse message page {message_url}")
+
+    subject = _clean_html_text(subject_match.group("subject"))
+    message_id = _normalize_message_id(unquote(message_id_match.group("msgid")))
+    if message_id is None:
+        raise ValueError(f"missing message id in page {message_url}")
+
+    date_value = _parse_ozlabs_page_date(header_match.group("date"))
+
+    return _CandidateMessage(
+        archive_month=archive_month,
+        message_url=message_url,
+        message_id=message_id,
+        subject=subject,
+        date=date_value,
+    )
+
+
+def fetch_candidate_message(
+    archive_month: str,
+    message_url: str,
+) -> _CandidateMessage:
+    html_text = _fetch_url_text(message_url)
+    return _parse_candidate_message_page(
+        html_text,
+        archive_month=archive_month,
+        message_url=message_url,
+    )
 
 
 def _parse_mbox_bytes(raw_mbox: bytes, archive_month: str) -> list[ArchiveMessage]:
@@ -234,7 +375,7 @@ def _parse_mbox_bytes(raw_mbox: bytes, archive_month: str) -> list[ArchiveMessag
             parsed = _parse_archive_message(mbox.get_message(key), archive_month)
             if parsed is not None:
                 messages.append(parsed)
-        LOG.info("loaded archive month=%s messages=%d", archive_month, len(messages))
+        LOG.info("loaded mbox source=%s messages=%d", archive_month, len(messages))
         return messages
     finally:
         temp_path.unlink(missing_ok=True)
@@ -372,33 +513,19 @@ def _build_series(
     return sorted(series_list, key=lambda item: item.latest_date, reverse=True)
 
 
-def build_recent_series(
-    messages: list[ArchiveMessage],
-    *,
-    now: datetime,
-    lookback_hours: int,
-) -> list[PatchSeries]:
-    return _build_series(
-        messages,
-        now=now,
-        lookback_hours=lookback_hours,
-        require_recent=True,
-    )
+def _series_contains_message(series: PatchSeries, message_id: str) -> bool:
+    if series.cover_message_id == message_id:
+        return True
+    return any(patch.message.message_id == message_id for patch in series.patches)
 
 
-def resolve_series_from_raw_thread(
-    discovered_series: PatchSeries,
+def _resolve_series_from_candidate_message(
+    candidate: _CandidateMessage,
     *,
     raw_message_root: str,
-    now: datetime | None = None,
+    now: datetime,
 ) -> PatchSeries:
-    if now is None:
-        now = datetime.now(tz=UTC)
-
-    raw_messages = fetch_lore_thread_messages(
-        raw_message_root,
-        discovered_series.root_message_id,
-    )
+    raw_messages = fetch_lore_thread_messages(raw_message_root, candidate.message_id)
     raw_series = _build_series(
         raw_messages,
         now=now,
@@ -407,33 +534,75 @@ def resolve_series_from_raw_thread(
     )
 
     for series in raw_series:
-        if (
-            series.root_message_id == discovered_series.root_message_id
-            and series.version == discovered_series.version
-        ):
+        if _series_contains_message(series, candidate.message_id):
             return series
 
     raise LookupError(
         "unable to reconstruct matching raw series for "
-        f"{discovered_series.root_message_id} v{discovered_series.version}"
+        f"{candidate.message_id}"
     )
 
 
 def discover_recent_series(
     archive_root: str,
     *,
+    raw_message_root: str,
     lookback_hours: int,
     now: datetime | None = None,
 ) -> list[PatchSeries]:
     if now is None:
         now = datetime.now(tz=UTC)
+
+    cutoff = now - timedelta(hours=lookback_hours)
     months = candidate_archive_months(now, lookback_hours)
+    series_by_key: dict[tuple[str, int], PatchSeries] = {}
 
-    messages: list[ArchiveMessage] = []
     for month in months:
-        messages.extend(fetch_month_messages(archive_root, month))
+        entries = fetch_month_date_index_entries(archive_root, month)
+        for entry in reversed(entries):
+            info = parse_patch_subject(entry.subject)
+            if info is None or info.is_rfc:
+                continue
+            if not _is_tracked_patch_title(info.title):
+                continue
 
-    return build_recent_series(messages, now=now, lookback_hours=lookback_hours)
+            try:
+                candidate = fetch_candidate_message(month, entry.message_url)
+            except Exception as exc:
+                LOG.warning(
+                    "message page parse failed month=%s url=%s error=%s",
+                    month,
+                    entry.message_url,
+                    exc,
+                )
+                continue
+
+            if candidate.date > now:
+                continue
+            if candidate.date < cutoff:
+                break
+
+            try:
+                series = _resolve_series_from_candidate_message(
+                    candidate,
+                    raw_message_root=raw_message_root,
+                    now=now,
+                )
+            except Exception as exc:
+                LOG.warning(
+                    "raw thread reconstruction failed msgid=%s url=%s error=%s",
+                    candidate.message_id,
+                    candidate.message_url,
+                    exc,
+                )
+                continue
+
+            key = (series.root_message_id, series.version)
+            existing = series_by_key.get(key)
+            if existing is None or series.latest_date > existing.latest_date:
+                series_by_key[key] = series
+
+    return sorted(series_by_key.values(), key=lambda item: item.latest_date, reverse=True)
 
 
 def write_series_mailbox(series: PatchSeries, path: Path) -> None:

@@ -141,9 +141,10 @@ Supported secrets are:
 
 ## How It Works
 
-`erofs-cibot` first scans the relevant OzLabs monthly `txt.gz` archives
-to discover recent complete `erofs-utils:` patch series. After a series
-is selected, it fetches the raw lore thread by `Message-ID`, rebuilds an
+`erofs-cibot` first scans the relevant OzLabs monthly `date.html` index
+pages to discover recent `erofs-utils:` patch mails.
+For each candidate mail, it opens the corresponding OzLabs message page,
+extracts the `Message-ID`, fetches the raw lore thread, rebuilds an
 mbox from the original mails, tries `git am --3way` on `experimental`,
 and opens a PR when the apply succeeds. If
 `REQUEST_COPILOT_REVIEW=1`, it also requests `@copilot` review for the
@@ -153,10 +154,10 @@ new PR.
 
 The current implementation:
 
-- fetches monthly OzLabs `txt.gz` archives for discovery
+- fetches monthly OzLabs `date.html` pages for discovery
+- opens matching OzLabs message pages to extract exact timestamps and `Message-ID`
 - only tracks patch series whose title starts with `erofs-utils:`
-- reconstructs complete patch series from recent messages
-- fetches raw thread mbox data by `Message-ID` before applying
+- reconstructs complete patch series from raw lore thread mbox data
 - applies series with `git am --3way`
 - pushes bot branches and opens pull requests
 - can request `@copilot` review on newly created pull requests
