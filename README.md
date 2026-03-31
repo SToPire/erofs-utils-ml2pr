@@ -153,7 +153,9 @@ and opens a PR when the apply succeeds. If
 `REQUEST_COPILOT_REVIEW=1`, it also requests `@copilot` review for the
 new PR. When `CLOSE_UPSTREAMED_PRS=1`, it also scans the latest 20
 commits on the base branch for lore links and closes bot PRs whose
-entire patch series has already been referenced upstream.
+entire patch series has already been referenced upstream. When a newer
+version of an already-open series appears on the same lore thread, the
+bot force-pushes the existing PR branch and updates that PR in place.
 
 ## Current Behavior
 
@@ -163,8 +165,10 @@ The current implementation:
 - opens matching OzLabs message pages to extract exact timestamps and `Message-ID`
 - only tracks patch series whose title starts with `erofs-utils:`
 - reconstructs complete patch series from raw lore thread mbox data
+- keeps only the latest version per lore thread when multiple versions are visible
 - applies series with `git am --3way`
 - pushes bot branches and opens pull requests
+- force-pushes existing open bot PRs when a newer version of the same series arrives
 - closes bot pull requests once all of their patch `Message-ID`s appear in recent upstream lore links
 - can request `@copilot` review on newly created pull requests
 

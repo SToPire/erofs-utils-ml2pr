@@ -74,11 +74,22 @@ def _format_pr_body(series, config: Config) -> str:
     )
 
 
-def _find_pr_for_series(prs: list[PullRequest], series_key: str) -> PullRequest | None:
-    for pr in prs:
-        if pr.series_key == series_key:
-            return pr
-    return None
+def _find_prs_for_series(prs: list[PullRequest], series_key: str) -> list[PullRequest]:
+    return [pr for pr in prs if pr.series_key == series_key]
+
+
+def _find_open_pr_for_series(prs: list[PullRequest], series_key: str) -> PullRequest | None:
+    open_prs = [pr for pr in _find_prs_for_series(prs, series_key) if pr.state == "open"]
+    if not open_prs:
+        return None
+    return max(open_prs, key=lambda pr: pr.number)
+
+
+def _find_closed_pr_for_series(prs: list[PullRequest], series_key: str) -> PullRequest | None:
+    closed_prs = [pr for pr in _find_prs_for_series(prs, series_key) if pr.state != "open"]
+    if not closed_prs:
+        return None
+    return max(closed_prs, key=lambda pr: pr.number)
 
 
 def _maybe_request_copilot_review(pr: PullRequest, github: GitHubClient, config: Config) -> None:
@@ -239,6 +250,96 @@ def _close_upstreamed_prs(
         )
 
 
+def _push_series_branch(
+    *,
+    series,
+    branch_name: str,
+    github: GitHubClient,
+    repo_dir: Path,
+    config: Config,
+) -> int:
+    reset_repo(repo_dir, token=github.token, base_branch=config.base_branch)
+    with TemporaryDirectory(prefix="erofs-cibot-series-") as tmpdir:
+        mailbox_path = Path(tmpdir) / "series.mbox"
+        write_series_mailbox(series, mailbox_path)
+        applied = apply_mailbox(
+            repo_dir,
+            token=github.token,
+            base_branch=config.base_branch,
+            mailbox_path=mailbox_path,
+        )
+
+    if applied <= 0:
+        raise ValueError(f"series applied zero commits root={series.root_message_id}")
+
+    push_branch(repo_dir, token=github.token, branch_name=branch_name)
+    return applied
+
+
+def _update_existing_pr(
+    *,
+    series,
+    existing_pr: PullRequest,
+    github: GitHubClient,
+    repo_dir: Path,
+    config: Config,
+) -> None:
+    try:
+        _push_series_branch(
+            series=series,
+            branch_name=existing_pr.head_ref,
+            github=github,
+            repo_dir=repo_dir,
+            config=config,
+        )
+        updated_pr = github.update_pull_request(
+            existing_pr.number,
+            title=_sanitize_title(series.title),
+            body=_format_pr_body(series, config),
+        )
+    except Exception as exc:
+        LOG.warning(
+            "update failed root=%s pr=%s title=%s error=%s",
+            series.root_message_id,
+            existing_pr.number,
+            series.title,
+            exc,
+        )
+        _write_summary(
+            f"| update failed | {_sanitize_title(series.title)} | [PR #{existing_pr.number}]({existing_pr.html_url}) |"
+        )
+        return
+
+    LOG.info(
+        "updated pr root=%s pr=%s url=%s version=%d",
+        series.root_message_id,
+        updated_pr.number,
+        updated_pr.html_url,
+        series.version,
+    )
+    _write_summary(
+        f"| updated | {_sanitize_title(series.title)} | [PR #{updated_pr.number}]({updated_pr.html_url}) |"
+    )
+
+
+def _select_latest_series_versions(series_list: list) -> list:
+    latest_by_root: dict[str, object] = {}
+    for series in series_list:
+        existing = latest_by_root.get(series.root_message_id)
+        if existing is None:
+            latest_by_root[series.root_message_id] = series
+            continue
+
+        if series.version > existing.version:
+            latest_by_root[series.root_message_id] = series
+            continue
+
+        if series.version == existing.version and series.latest_date > existing.latest_date:
+            latest_by_root[series.root_message_id] = series
+
+    return sorted(latest_by_root.values(), key=lambda item: item.latest_date, reverse=True)
+
+
 def _process_series(
     *,
     series,
@@ -247,18 +348,9 @@ def _process_series(
     repo_dir: Path,
     config: Config,
 ) -> None:
-    existing_pr = _find_pr_for_series(prs, series.root_message_id)
-    if existing_pr is not None and not config.ignore_existing_prs:
-        LOG.info(
-            "series already has PR root=%s pr=%s state=%s",
-            series.root_message_id,
-            existing_pr.number,
-            existing_pr.state,
-        )
-        _write_summary(
-            f"| exists | {_sanitize_title(series.title)} | PR #{existing_pr.number} |"
-        )
-        return
+    open_pr = _find_open_pr_for_series(prs, series.root_message_id)
+    closed_pr = _find_closed_pr_for_series(prs, series.root_message_id)
+    existing_pr = open_pr or closed_pr
 
     if existing_pr is not None and config.ignore_existing_prs:
         LOG.info(
@@ -267,6 +359,41 @@ def _process_series(
             existing_pr.number,
             existing_pr.state,
         )
+
+    if not config.ignore_existing_prs and open_pr is not None:
+        existing_version = open_pr.series_version
+        if existing_version is not None and series.version > existing_version:
+            _update_existing_pr(
+                series=series,
+                existing_pr=open_pr,
+                github=github,
+                repo_dir=repo_dir,
+                config=config,
+            )
+            return
+
+        LOG.info(
+            "series already has open PR root=%s pr=%s version=%s",
+            series.root_message_id,
+            open_pr.number,
+            existing_version,
+        )
+        _write_summary(
+            f"| exists | {_sanitize_title(series.title)} | PR #{open_pr.number} |"
+        )
+        return
+
+    if not config.ignore_existing_prs and closed_pr is not None:
+        LOG.info(
+            "series already has closed PR root=%s pr=%s version=%s",
+            series.root_message_id,
+            closed_pr.number,
+            closed_pr.series_version,
+        )
+        _write_summary(
+            f"| closed | {_sanitize_title(series.title)} | PR #{closed_pr.number} |"
+        )
+        return
 
     rerun_suffix = None
     if config.ignore_existing_prs:
@@ -280,42 +407,29 @@ def _process_series(
         unique_suffix=rerun_suffix,
     )
 
-    reset_repo(repo_dir, token=github.token, base_branch=config.base_branch)
-    with TemporaryDirectory(prefix="erofs-cibot-series-") as tmpdir:
-        mailbox_path = Path(tmpdir) / "series.mbox"
-        apply_series = series
-        write_series_mailbox(apply_series, mailbox_path)
-
-        try:
-            applied = apply_mailbox(
-                repo_dir,
-                token=github.token,
-                base_branch=config.base_branch,
-                mailbox_path=mailbox_path,
-            )
-        except Exception as exc:
-            LOG.warning(
-                "apply failed root=%s title=%s error=%s",
-                series.root_message_id,
-                series.title,
-                exc,
-            )
-            _write_summary(
-                f"| apply failed | {_sanitize_title(series.title)} | `{series.root_message_id}` |"
-            )
-            return
-
-    if applied <= 0:
-        LOG.warning("series applied zero commits root=%s", series.root_message_id)
+    try:
+        _push_series_branch(
+            series=series,
+            branch_name=branch_name,
+            github=github,
+            repo_dir=repo_dir,
+            config=config,
+        )
+    except Exception as exc:
+        LOG.warning(
+            "apply failed root=%s title=%s error=%s",
+            series.root_message_id,
+            series.title,
+            exc,
+        )
         _write_summary(
-            f"| empty | {_sanitize_title(series.title)} | `{series.root_message_id}` |"
+            f"| apply failed | {_sanitize_title(series.title)} | `{series.root_message_id}` |"
         )
         return
 
-    push_branch(repo_dir, token=github.token, branch_name=branch_name)
     pr = github.create_pull_request(
-        title=_sanitize_title(apply_series.title),
-        body=_format_pr_body(apply_series, config),
+        title=_sanitize_title(series.title),
+        body=_format_pr_body(series, config),
         head=branch_name,
         base=config.base_branch,
     )
@@ -378,6 +492,7 @@ def run_once(config: Config) -> int:
         lookback_hours=config.lookback_hours,
         now=now,
     )
+    series_list = _select_latest_series_versions(series_list)
     LOG.info("discovered complete series=%d", len(series_list))
 
     prs = github.list_pull_requests(state="all")

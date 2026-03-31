@@ -193,6 +193,30 @@ class GitHubClient:
             html_url=payload["html_url"],
         )
 
+    def update_pull_request(
+        self,
+        pull_number: int,
+        *,
+        title: str,
+        body: str,
+    ) -> PullRequest:
+        payload = self._request(
+            "PATCH",
+            f"/repos/{self.owner}/{self.repo}/pulls/{pull_number}",
+            json={
+                "title": title,
+                "body": body,
+            },
+        ).json()
+        return PullRequest(
+            number=payload["number"],
+            state=payload["state"],
+            title=payload["title"],
+            body=payload.get("body") or "",
+            head_ref=payload["head"]["ref"],
+            html_url=payload["html_url"],
+        )
+
     def comment_on_pull_request(self, pull_number: int, *, body: str) -> None:
         self._request(
             "POST",
