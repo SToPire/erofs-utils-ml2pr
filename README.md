@@ -36,6 +36,7 @@ Common environment variables:
 - `CLONE_DIR=/tmp/erofs-cibot-cache`
 - `REQUEST_COPILOT_REVIEW=0`
 - `IGNORE_EXISTING_PRS=0`
+- `CLOSE_UPSTREAMED_PRS=0`
 - `GH_PATH=gh`
 
 GitHub authentication:
@@ -99,12 +100,17 @@ erofs-cibot bridge
 The repository includes a scheduled workflow at
 `./.github/workflows/bridge.yml` that runs every two hours by default.
 It also supports manual triggering through `workflow_dispatch`.
-The manual trigger exposes an `ignore_existing_prs` input, which maps to
-`IGNORE_EXISTING_PRS=1` for that run only.
+The manual trigger exposes `ignore_existing_prs` and
+`close_upstreamed_prs` inputs, which map to `IGNORE_EXISTING_PRS=1` and
+`CLOSE_UPSTREAMED_PRS=1` for that run only.
 Before each bridge run, the workflow also mirrors the configured
 `erofs/erofs-utils:experimental` branch into `OWNER/REPO:BASE_BRANCH`.
 When `OWNER=erofs`, `REPO=erofs-utils`, and `BASE_BRANCH=experimental`,
 that branch sync step is skipped.
+On scheduled runs, and on manual runs when `close_upstreamed_prs=true`,
+the workflow also scans the latest 20 commits on the synced base branch
+and automatically closes bot PRs whose patch `Message-ID`s are all
+referenced by upstream lore links.
 
 Set these repository secrets or variables before enabling it:
 
@@ -145,7 +151,9 @@ extracts the `Message-ID`, fetches the raw lore thread, rebuilds an
 mbox from the original mails, tries `git am --3way` on `experimental`,
 and opens a PR when the apply succeeds. If
 `REQUEST_COPILOT_REVIEW=1`, it also requests `@copilot` review for the
-new PR.
+new PR. When `CLOSE_UPSTREAMED_PRS=1`, it also scans the latest 20
+commits on the base branch for lore links and closes bot PRs whose
+entire patch series has already been referenced upstream.
 
 ## Current Behavior
 
@@ -157,6 +165,7 @@ The current implementation:
 - reconstructs complete patch series from raw lore thread mbox data
 - applies series with `git am --3way`
 - pushes bot branches and opens pull requests
+- closes bot pull requests once all of their patch `Message-ID`s appear in recent upstream lore links
 - can request `@copilot` review on newly created pull requests
 
 Planned follow-up work includes superseded-version handling, stale PR

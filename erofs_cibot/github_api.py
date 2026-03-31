@@ -7,10 +7,13 @@ from dataclasses import dataclass
 import jwt
 import requests
 
+from .archive import normalize_message_id
 from .config import Config
 
 API_ROOT = "https://api.github.com"
 SERIES_MARKER_RE = re.compile(r"^<!--\s*erofs-cibot-series:\s*(.+?)\s*-->$", re.MULTILINE)
+VERSION_MARKER_RE = re.compile(r"^<!--\s*erofs-cibot-version:\s*(\d+)\s*-->$", re.MULTILINE)
+PATCH_MARKER_RE = re.compile(r"^<!--\s*erofs-cibot-patch:\s*(.+?)\s*-->$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -25,7 +28,25 @@ class PullRequest:
     @property
     def series_key(self) -> str | None:
         match = SERIES_MARKER_RE.search(self.body or "")
-        return match.group(1) if match else None
+        if match is None:
+            return None
+        return normalize_message_id(match.group(1))
+
+    @property
+    def series_version(self) -> int | None:
+        match = VERSION_MARKER_RE.search(self.body or "")
+        if match is None:
+            return None
+        return int(match.group(1))
+
+    @property
+    def patch_message_ids(self) -> tuple[str, ...]:
+        message_ids: list[str] = []
+        for raw_value in PATCH_MARKER_RE.findall(self.body or ""):
+            message_id = normalize_message_id(raw_value)
+            if message_id is not None:
+                message_ids.append(message_id)
+        return tuple(message_ids)
 
 
 class GitHubAppClient:
@@ -170,4 +191,18 @@ class GitHubClient:
             body=payload.get("body") or "",
             head_ref=payload["head"]["ref"],
             html_url=payload["html_url"],
+        )
+
+    def comment_on_pull_request(self, pull_number: int, *, body: str) -> None:
+        self._request(
+            "POST",
+            f"/repos/{self.owner}/{self.repo}/issues/{pull_number}/comments",
+            json={"body": body},
+        )
+
+    def close_pull_request(self, pull_number: int) -> None:
+        self._request(
+            "PATCH",
+            f"/repos/{self.owner}/{self.repo}/pulls/{pull_number}",
+            json={"state": "closed"},
         )

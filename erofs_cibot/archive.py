@@ -145,7 +145,7 @@ def _is_tracked_patch_title(title: str) -> bool:
     return title.startswith(TRACKED_TITLE_PREFIX)
 
 
-def _normalize_message_id(value: str | None) -> str | None:
+def normalize_message_id(value: str | None) -> str | None:
     if not value:
         return None
     match = _MESSAGE_ID_RE.search(value)
@@ -196,7 +196,7 @@ def _extract_body(msg: Message) -> str:
 
 
 def _parse_archive_message(msg: Message, archive_month: str) -> ArchiveMessage | None:
-    message_id = _normalize_message_id(msg.get("Message-ID"))
+    message_id = normalize_message_id(msg.get("Message-ID"))
     if not message_id:
         return None
 
@@ -209,7 +209,7 @@ def _parse_archive_message(msg: Message, archive_month: str) -> ArchiveMessage |
 
     subject = _decode_header_value(msg.get("Subject"))
     from_name, from_addr = parseaddr(_decode_header_value(msg.get("From")))
-    in_reply_to = _normalize_message_id(msg.get("In-Reply-To"))
+    in_reply_to = normalize_message_id(msg.get("In-Reply-To"))
     references = _extract_message_ids(msg.get("References"))
     subject_info = parse_patch_subject(subject)
 
@@ -336,7 +336,7 @@ def _parse_candidate_message_page(
         raise ValueError(f"unable to parse message page {message_url}")
 
     subject = _clean_html_text(subject_match.group("subject"))
-    message_id = _normalize_message_id(unquote(message_id_match.group("msgid")))
+    message_id = normalize_message_id(unquote(message_id_match.group("msgid")))
     if message_id is None:
         raise ValueError(f"missing message id in page {message_url}")
 
@@ -603,6 +603,42 @@ def discover_recent_series(
                 series_by_key[key] = series
 
     return sorted(series_by_key.values(), key=lambda item: item.latest_date, reverse=True)
+
+
+def resolve_series_by_root_message(
+    raw_message_root: str,
+    root_message_id: str,
+    *,
+    version: int | None = None,
+    now: datetime | None = None,
+) -> PatchSeries:
+    normalized_root = normalize_message_id(root_message_id)
+    if normalized_root is None:
+        raise ValueError(f"invalid root message id {root_message_id!r}")
+
+    if now is None:
+        now = datetime.now(tz=UTC)
+
+    raw_messages = fetch_lore_thread_messages(raw_message_root, normalized_root)
+    raw_series = _build_series(
+        raw_messages,
+        now=now,
+        lookback_hours=24 * 365 * 20,
+        require_recent=False,
+    )
+
+    matches = [series for series in raw_series if series.root_message_id == normalized_root]
+    if version is not None:
+        matches = [series for series in matches if series.version == version]
+
+    if not matches:
+        version_text = f" version={version}" if version is not None else ""
+        raise LookupError(
+            "unable to reconstruct raw series for "
+            f"{normalized_root}{version_text}"
+        )
+
+    return sorted(matches, key=lambda item: item.version, reverse=True)[0]
 
 
 def write_series_mailbox(series: PatchSeries, path: Path) -> None:

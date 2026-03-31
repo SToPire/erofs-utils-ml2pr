@@ -35,6 +35,7 @@ class Config:
     git_user_email: str = "erofs-cibot@lists.ozlabs.org"
     request_copilot_review: bool = False
     ignore_existing_prs: bool = False
+    close_upstreamed_prs: bool = False
     gh_path: str = "gh"
     copilot_review_token: str | None = None
     github_app_id: str | None = None
@@ -71,6 +72,7 @@ class Config:
             ),
             request_copilot_review=_get_bool("REQUEST_COPILOT_REVIEW", False),
             ignore_existing_prs=_get_bool("IGNORE_EXISTING_PRS", False),
+            close_upstreamed_prs=_get_bool("CLOSE_UPSTREAMED_PRS", False),
             gh_path=os.getenv("GH_PATH", "gh"),
             copilot_review_token=os.getenv("COPILOT_REVIEW_TOKEN"),
             github_app_id=os.getenv("APP_ID"),

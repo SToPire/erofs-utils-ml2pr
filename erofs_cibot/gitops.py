@@ -126,6 +126,24 @@ def push_branch(repo_dir: Path, *, token: str, branch_name: str) -> None:
     )
 
 
+def list_recent_commit_messages(
+    repo_dir: Path,
+    *,
+    token: str | None,
+    ref: str,
+    limit: int,
+) -> list[str]:
+    output = run_git(
+        repo_dir,
+        token,
+        "log",
+        f"--max-count={limit}",
+        "--format=%B%x00",
+        ref,
+    )
+    return [message.strip() for message in output.split("\x00") if message.strip()]
+
+
 def build_branch_name(
     prefix: str,
     root_message_id: str,
