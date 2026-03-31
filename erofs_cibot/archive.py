@@ -57,6 +57,7 @@ class _SeriesAccumulator:
     root_message_id: str
     version: int
     total: int = 0
+    root_subject: str | None = None
     title: str | None = None
     latest_date: datetime | None = None
     submitter_name: str | None = None
@@ -415,6 +416,12 @@ def _resolve_thread_root(
     return root_id
 
 
+def _subject_for_pr_title(message: ArchiveMessage) -> str:
+    if message.subject_info is not None:
+        return message.subject_info.title
+    return message.subject.strip()
+
+
 def _build_series(
     messages: list[ArchiveMessage],
     *,
@@ -444,6 +451,10 @@ def _build_series(
                 version=info.version,
             ),
         )
+        if group.root_subject is None:
+            root_message = messages_by_id.get(root_message_id)
+            if root_message is not None:
+                group.root_subject = _subject_for_pr_title(root_message)
 
         if cutoff <= message.date <= now:
             group.touched_in_window = True
@@ -493,7 +504,7 @@ def _build_series(
             )
             continue
 
-        title = group.title or group.patches_by_index[1].title
+        title = group.root_subject or group.title or group.patches_by_index[1].title
 
         series = PatchSeries(
             key=root_message_id,
