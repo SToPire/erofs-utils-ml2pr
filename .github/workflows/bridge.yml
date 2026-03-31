@@ -1,4 +1,4 @@
-name: erofs-cibot
+name: erofs-utils-ml2pr
 
 on:
   schedule:
