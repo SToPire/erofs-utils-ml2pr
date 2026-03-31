@@ -6,17 +6,17 @@ on:
   workflow_dispatch:
     inputs:
       ignore_existing_prs:
-        description: "Ignore matching existing PRs and open a fresh PR"
+        description: "IGNORE_EXISTING_PRS"
         required: false
         default: false
         type: boolean
       lookback_hours:
-        description: "Hours of mail history to scan for candidate patch series"
+        description: "LOOKBACK_HOURS"
         required: false
         default: "48"
         type: string
       close_upstreamed_prs:
-        description: "Close bot PRs already referenced by recent upstream lore links"
+        description: "CLOSE_UPSTREAMED_PRS"
         required: false
         default: false
         type: boolean
