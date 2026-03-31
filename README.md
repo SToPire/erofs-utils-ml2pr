@@ -100,9 +100,10 @@ erofs-cibot bridge
 The repository includes a scheduled workflow at
 `./.github/workflows/bridge.yml` that runs every two hours by default.
 It also supports manual triggering through `workflow_dispatch`.
-The manual trigger exposes `ignore_existing_prs` and
-`close_upstreamed_prs` inputs, which map to `IGNORE_EXISTING_PRS=1` and
-`CLOSE_UPSTREAMED_PRS=1` for that run only.
+The manual trigger exposes `ignore_existing_prs`,
+`close_upstreamed_prs`, and `lookback_hours` inputs, which map to
+`IGNORE_EXISTING_PRS=1`, `CLOSE_UPSTREAMED_PRS=1`, and `LOOKBACK_HOURS`
+for that run only.
 Before each bridge run, the workflow also mirrors the configured
 `erofs/erofs-utils:experimental` branch into `OWNER/REPO:BASE_BRANCH`.
 When `OWNER=erofs`, `REPO=erofs-utils`, and `BASE_BRANCH=experimental`,

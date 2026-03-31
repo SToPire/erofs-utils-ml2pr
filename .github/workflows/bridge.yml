@@ -10,6 +10,11 @@ on:
         required: false
         default: false
         type: boolean
+      lookback_hours:
+        description: "Hours of mail history to scan for candidate patch series"
+        required: false
+        default: "48"
+        type: string
       close_upstreamed_prs:
         description: "Close bot PRs already referenced by recent upstream lore links"
         required: false
@@ -109,7 +114,7 @@ jobs:
           OWNER: ${{ vars.OWNER || 'erofs' }}
           REPO: ${{ vars.REPO || 'erofs-utils' }}
           BASE_BRANCH: ${{ vars.BASE_BRANCH || 'experimental' }}
-          LOOKBACK_HOURS: ${{ vars.LOOKBACK_HOURS || '48' }}
+          LOOKBACK_HOURS: ${{ github.event_name == 'workflow_dispatch' && inputs.lookback_hours || vars.LOOKBACK_HOURS || '48' }}
           POLL_INTERVAL_HOURS: ${{ vars.POLL_INTERVAL_HOURS || '2' }}
           BOT_BRANCH_PREFIX: ${{ vars.BOT_BRANCH_PREFIX || 'ml' }}
           CLONE_DIR: ${{ vars.CLONE_DIR || '/tmp/erofs-cibot-cache' }}
