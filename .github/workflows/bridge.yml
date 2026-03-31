@@ -56,6 +56,43 @@ jobs:
       - name: Install project
         run: pip install .
 
+      - name: Sync target branch from upstream experimental
+        env:
+          SOURCE_OWNER: erofs
+          SOURCE_REPO: erofs-utils
+          SOURCE_BRANCH: experimental
+          TARGET_OWNER: ${{ vars.OWNER || 'erofs' }}
+          TARGET_REPO: ${{ vars.REPO || 'erofs-utils' }}
+          TARGET_BRANCH: ${{ vars.BASE_BRANCH || 'experimental' }}
+          APP_ID: ${{ vars.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          source_repo="${SOURCE_OWNER}/${SOURCE_REPO}"
+          target_repo="${TARGET_OWNER}/${TARGET_REPO}"
+
+          if [ "$source_repo" = "$target_repo" ] && [ "$SOURCE_BRANCH" = "$TARGET_BRANCH" ]; then
+            echo "Target already matches ${source_repo}:${SOURCE_BRANCH}; skipping branch sync."
+            exit 0
+          fi
+
+          git fetch --no-tags --depth=1 \
+            "https://github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git" \
+            "+refs/heads/${SOURCE_BRANCH}:refs/remotes/upstream-sync/${SOURCE_BRANCH}"
+
+          if [ -z "${APP_ID:-}" ] || [ -z "${APP_PRIVATE_KEY:-}" ]; then
+            echo "Missing APP_ID or APP_PRIVATE_KEY for branch sync." >&2
+            exit 1
+          fi
+
+          token="$(python -c "import os; from erofs_cibot.github_api import GitHubAppClient; private_key = os.environ['APP_PRIVATE_KEY'].replace('\\\\n', '\\n'); client = GitHubAppClient(os.environ['APP_ID'], private_key); print(client.create_installation_token(os.environ['TARGET_OWNER'], os.environ['TARGET_REPO']))")"
+          auth_header="$(SYNC_TOKEN="$token" python -c "import os; from erofs_cibot.gitops import _auth_header; print(_auth_header(os.environ['SYNC_TOKEN']))")"
+
+          git -c "http.extraheader=${auth_header}" push --force \
+            "https://github.com/${TARGET_OWNER}/${TARGET_REPO}.git" \
+            "refs/remotes/upstream-sync/${SOURCE_BRANCH}:refs/heads/${TARGET_BRANCH}"
+
       - name: Run bridge
         env:
           ARCHIVE_ROOT: ${{ vars.ARCHIVE_ROOT || 'https://lists.ozlabs.org/pipermail/linux-erofs/' }}
@@ -74,7 +111,6 @@ jobs:
           IGNORE_EXISTING_PRS: ${{ github.event_name == 'workflow_dispatch' && inputs.ignore_existing_prs && '1' || '0' }}
           GH_PATH: ${{ vars.GH_PATH || 'gh' }}
           COPILOT_REVIEW_TOKEN: ${{ secrets.COPILOT_REVIEW_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           APP_ID: ${{ vars.APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: erofs-cibot bridge

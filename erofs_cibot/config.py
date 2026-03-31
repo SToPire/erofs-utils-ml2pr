@@ -37,7 +37,6 @@ class Config:
     ignore_existing_prs: bool = False
     gh_path: str = "gh"
     copilot_review_token: str | None = None
-    github_token: str | None = None
     github_app_id: str | None = None
     github_app_private_key: str | None = None
 
@@ -74,7 +73,6 @@ class Config:
             ignore_existing_prs=_get_bool("IGNORE_EXISTING_PRS", False),
             gh_path=os.getenv("GH_PATH", "gh"),
             copilot_review_token=os.getenv("COPILOT_REVIEW_TOKEN"),
-            github_token=os.getenv("GH_TOKEN"),
             github_app_id=os.getenv("APP_ID"),
             github_app_private_key=private_key,
         )

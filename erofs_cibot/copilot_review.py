@@ -13,7 +13,7 @@ def request_review(
     token: str,
 ) -> None:
     env = os.environ.copy()
-    env["GH_TOKEN"] = token
+    env["GITHUB_TOKEN"] = token
 
     subprocess.run(
         [

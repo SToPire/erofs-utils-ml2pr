@@ -40,18 +40,13 @@ Common environment variables:
 
 GitHub authentication:
 
-- `GH_TOKEN`
-- or `APP_ID` and `APP_PRIVATE_KEY`
+- `APP_ID` and `APP_PRIVATE_KEY`
 - optional `COPILOT_REVIEW_TOKEN` for requesting `@copilot` review as a user
 
 Authentication priority and scope:
 
-- `GH_TOKEN` and `APP_ID` plus `APP_PRIVATE_KEY` are the main GitHub
-  authentication methods for pushing branches and creating PRs.
-- If `GH_TOKEN` is set, it takes precedence over `APP_ID` plus
-  `APP_PRIVATE_KEY`.
-- If `GH_TOKEN` is unset, `APP_ID` plus `APP_PRIVATE_KEY` are used to
-  create a GitHub App installation token.
+- `APP_ID` plus `APP_PRIVATE_KEY` are the main GitHub authentication
+  method for cloning, pushing branches, and creating PRs.
 - `COPILOT_REVIEW_TOKEN` only affects the `@copilot` review request.
   It does not change which identity creates the PR.
 - If `COPILOT_REVIEW_TOKEN` is unset, the Copilot review request falls
@@ -65,8 +60,7 @@ gh pr edit <pr> --repo <owner>/<repo> --add-reviewer @copilot
 ```
 
 If `COPILOT_REVIEW_TOKEN` is set, only the Copilot review request uses
-that token. PR creation still uses `GH_TOKEN` or `APP_ID` plus
-`APP_PRIVATE_KEY`.
+that token. PR creation still uses `APP_ID` plus `APP_PRIVATE_KEY`.
 
 When `IGNORE_EXISTING_PRS=1`, `erofs-cibot` ignores matching existing PRs
 for the same mail thread and opens a fresh PR on a new bot branch.
@@ -107,6 +101,10 @@ The repository includes a scheduled workflow at
 It also supports manual triggering through `workflow_dispatch`.
 The manual trigger exposes an `ignore_existing_prs` input, which maps to
 `IGNORE_EXISTING_PRS=1` for that run only.
+Before each bridge run, the workflow also mirrors the configured
+`erofs/erofs-utils:experimental` branch into `OWNER/REPO:BASE_BRANCH`.
+When `OWNER=erofs`, `REPO=erofs-utils`, and `BASE_BRANCH=experimental`,
+that branch sync step is skipped.
 
 Set these repository secrets or variables before enabling it:
 
@@ -136,7 +134,6 @@ variables are:
 Supported secrets are:
 
 - `COPILOT_REVIEW_TOKEN`
-- `GH_TOKEN`
 - `APP_PRIVATE_KEY`
 
 ## How It Works

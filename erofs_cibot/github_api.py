@@ -88,9 +88,6 @@ class GitHubClient:
 
     @classmethod
     def from_config(cls, config: Config) -> "GitHubClient":
-        if config.github_token:
-            return cls(config.github_owner, config.github_repo, config.github_token)
-
         if config.github_app_id and config.github_app_private_key:
             app_client = GitHubAppClient(
                 config.github_app_id,
@@ -102,10 +99,7 @@ class GitHubClient:
             )
             return cls(config.github_owner, config.github_repo, token)
 
-        raise ValueError(
-            "missing GitHub credentials: set GH_TOKEN or "
-            "APP_ID and APP_PRIVATE_KEY"
-        )
+        raise ValueError("missing GitHub credentials: set APP_ID and APP_PRIVATE_KEY")
 
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         response = self.session.request(
